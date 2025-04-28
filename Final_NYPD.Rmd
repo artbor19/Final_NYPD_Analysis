@@ -1,0 +1,145 @@
+---
+title: "NYPD Shooting Incidents"
+author: "Artur Ayzenberg"
+date: "2025-03-30"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Step 1 importing the NYPD shooting data
+
+```{r immportData}
+library(tidyverse)
+library(lubridate)
+library(ggplot2)
+url_in <- "https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD"
+nypd_shooting <- read.csv(url_in)
+```
+
+## Step 2 tidy the data
+In the below step NYPD shooting data is collected.
+Next the data is further assigned to variables for step 3 visualization and analysis.
+One such point will be the year_frequency variable to determine if shootings are on the decline or on the rise.
+Next 2 separate variables are collected, age breakdown of perpetrators and victims. 
+```{r tidyData}
+nypd_shooting <- nypd_shooting %>% select(-c(X_COORD_CD, Y_COORD_CD, Latitude, Longitude, Lon_Lat))
+nypd_shooting <- nypd_shooting %>% mutate(OCCUR_DATE = mdy(OCCUR_DATE))
+summary(nypd_shooting)
+##### Isolate the yearly occurrences #####
+yearly_totals <- format(as.Date(nypd_shooting$OCCUR_DATE, format="%Y/%m/%d"),"%Y")
+yearly_totals <- table(yearly_totals)
+year_frequency <- as.data.frame.table(yearly_totals)
+year_frequency$yearly_totals <- as.numeric(as.character(year_frequency$yearly_totals))
+
+##### Victims and Perpetrators by age #####
+# Perp ages
+ages_of_perp <- nypd_shooting %>% select(c(PERP_AGE_GROUP))
+ages_of_perp <- as.data.frame.table(ages_of_perp)
+ages_of_perp <- ages_of_perp[!(ages_of_perp$PERP_AGE_GROUP %in% "UNKNOWN"),]
+ages_of_perp <- ages_of_perp[!(ages_of_perp$PERP_AGE_GROUP %in% "(null)"),]
+ages_of_perp <- ages_of_perp[!(ages_of_perp$PERP_AGE_GROUP == ""),]
+table(ages_of_perp$PERP_AGE_GROUP) # Step is done to determine any ages/age groups that din't make sense to remove them for data cleanliness
+ages_of_perp <- ages_of_perp[!(ages_of_perp$PERP_AGE_GROUP == "1020"),]
+ages_of_perp <- ages_of_perp[!(ages_of_perp$PERP_AGE_GROUP == "1028"),]
+ages_of_perp <- ages_of_perp[!(ages_of_perp$PERP_AGE_GROUP == "224"),]
+ages_of_perp <- ages_of_perp[!(ages_of_perp$PERP_AGE_GROUP == "940"),]
+ages_of_perp <- ages_of_perp[!(ages_of_perp$PERP_AGE_GROUP == "2021"),]
+ages_of_perp <- ages_of_perp[c("PERP_AGE_GROUP")]
+ages_of_perp <- table(ages_of_perp)
+ages_of_perp_groups <- as.data.frame.table(ages_of_perp)
+# Victim ages
+ages_of_vic <- nypd_shooting %>% select(c(VIC_AGE_GROUP))
+ages_of_vic <- as.data.frame.table(ages_of_vic)
+ages_of_vic <- ages_of_vic[!(ages_of_vic$VIC_AGE_GROUP %in% "UNKNOWN"),]
+ages_of_vic <- ages_of_vic[!(ages_of_vic$VIC_AGE_GROUP %in% "(null)"),]
+ages_of_vic <- ages_of_vic[!(ages_of_vic$VIC_AGE_GROUP == ""),]
+table(ages_of_vic$VIC_AGE_GROUP) # Step is done to determine any ages/age groups that din't make sense to remove them for data cleanliness
+ages_of_vic <- ages_of_vic[!(ages_of_vic$VIC_AGE_GROUP == "1022"),]
+ages_of_vic <- ages_of_vic[c("VIC_AGE_GROUP")]
+ages_of_vic <- table(ages_of_vic)
+ages_of_vic_groups <- as.data.frame.table(ages_of_vic)
+```
+
+## Step 3 Visualize the data
+Based on the variable above data visualization will be presented as well as some respective analysis.
+Analysis will be based on R calculations or other possible tests
+```{r visualizeData}
+#Frequency visualization
+ggplot(year_frequency, aes(x = yearly_totals, y = Freq)) + labs(x="Year", y="Reported Incidents") + geom_point(size = 3, color = 'red') + geom_smooth(method=lm)
+#Perpetrator ages
+ggplot(ages_of_perp_groups, aes(x=PERP_AGE_GROUP, y=Freq)) + labs(x="Perpetrator age group", y="Reported incindents") + geom_bar(stat="identity")
+sum(ages_of_perp_groups$Freq)
+ages_of_perp_groups
+#Victim ages
+ggplot(ages_of_vic_groups, aes(x=VIC_AGE_GROUP, y=Freq)) + labs(x="Victim age group", y="Reported incindents") + geom_bar(stat="identity")
+sum(ages_of_vic_groups$Freq)
+ages_of_vic_groups
+```
+
+## Step 3 Analyze the data
+The following includes the analysis for items visualized above.
+```{r analyzeData}
+#Frequency analysis
+year_model <- lm(year_frequency$Freq ~ year_frequency$yearly_totals, data = year_frequency)
+summary(year_model)
+#Perpetrator ages
+ratio_perp <- 1682/sum(ages_of_perp_groups$Freq)
+ratio_victim <- 2954/sum(ages_of_vic_groups$Freq)
+std_err <- sqrt(((ratio_perp * (1 - ratio_perp)) / sum(ages_of_perp_groups$Freq)) + ((ratio_victim * (1 - ratio_victim)) / sum(ages_of_vic_groups$Freq)))
+z_score <- (ratio_perp - ratio_victim) / std_err
+p_value <- pnorm(q=z_score, lower.tail=FALSE)
+ratio_perp
+ratio_victim
+std_err
+z_score
+p_value
+```
+
+## Step 3 Extras
+Here is a thought experiment to do with yearly shooting data. When looking at the graph we almost see 2 separate groups.
+Before covid there appears to be a clear trend downwards which takes a rapid spike in 2020, after which we see it quickly dropping down to pre covid levels.
+As a thought experiment below is the data separated into 2 separate groups, visualized and trend lines drawn and shown. 
+```{r extraData}
+#Get 2 separate populations
+pre_covid <- year_frequency[year_frequency$yearly_totals < 2020, ]
+post_covid <- year_frequency[year_frequency$yearly_totals > 2019, ]
+#Visualize the pre-covid trend
+ggplot(pre_covid, aes(x = yearly_totals, y = Freq)) + labs(x="Year", y="Reported Incidents") + geom_point(size = 3, color = 'red') + geom_smooth(method=lm)
+#Visualize the post-covid data
+ggplot(post_covid, aes(x = yearly_totals, y = Freq)) + labs(x="Year", y="Reported Incidents") + geom_point(size = 3, color = 'red') + geom_smooth(method=lm)
+#Analysis of pre-covid trend
+pre_year_model <- lm(pre_covid$Freq ~ pre_covid$yearly_totals, data = pre_covid)
+summary(pre_year_model)
+#Analysis of post-covid trend
+post_year_model <- lm(post_covid$Freq ~ post_covid$yearly_totals, data = post_covid)
+summary(post_year_model)
+```
+
+### Step 3 Final write ups
+
+### Trend in shooting incidents
+For the first explored issues involving determining the trend for shooting incidents there is an optimistic outlook that shooting incidents are decreasing. 
+Based on the data from either pre-covid, post-covid or the general trend. It is clear that the number of shooting incidents is trending downwards. 
+
+#### Important: This is an observation of the trend, not an exploration of the cause for the spike
+#### It is referred to as a covid spike due to 2020 being the year the spike occurs and 2020 being the year know for the covid outbreak
+
+When a thought experiment was done to look at the trend before the 2020 spike (years 2006 through 2019) the decrease trend is even more definitive.
+The downward trend was -91.862 or a decrease of almost 92 incidents per year with a p-value when rounded to 4 digits being 0, leaving no room for doubt that there was a decrease.
+Starting from the 2020 data there is a suggestion of a decrease, but it is impossible to reject the null as the p-value for that data is 0.106 or greater than the 0.05 significance needed.
+An issue with that data is the small sample size (4 years only) and it would be worth exploring when the sample size increases.
+
+### Perpetrator and Victims
+While the sample ratio of underage perpetrator and victim are slightly less than 1% apart (0.1127 compared to 0.1037).
+Due to the large sample size there is enough evidence to suggest that minors are more likely to be perpetrators than victims of gun violence.
+With a p-value of 0.0021 the null is rejected.
+
+### Step 4 Biases
+While the data might app0ear as raw data, there is a lot of room for potential biases to come in. For example one thing that might stick out is that the number of victims and perpetrators have a nearly 10,000 gap between them. Depending on the situations and who the victims are, but mainly due to socio-economic reasons, perpetrators can sometimes not be found. Additionally if this data was used to train an AI on predicting potential criminals, the information known about the perpetrators is their age, race and sex, all things out of a person's control, and not other contributing factors including but not limited to economic status, mental health issues as well as previous history.
+Additionally, another way biases can be used is when presenting conclusions regarding this data, it is important to be careful and not present the data in ways that can be seen as potentially harmful without investigation root causes behind this data.
